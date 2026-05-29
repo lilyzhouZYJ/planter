@@ -361,19 +361,14 @@ ListView { height: 1fr; }
 
 ListItem { padding: 0 1 1 1; }
 
-ListItem.is-hovered { background: #ccdfd2; }
-ListItem.--highlight.is-hovered { background: #a3d4b0; }
+ListItem:hover { background: #ccdfd2; }
+ListItem.--highlight:hover { background: #a3d4b0; }
 
 Footer { dock: bottom; }
 """
 
 
-class _ListItem(ListItem):
-    def on_enter(self) -> None:
-        self.add_class("is-hovered")
-
-    def on_leave(self) -> None:
-        self.remove_class("is-hovered")
+_ListItem = ListItem
 
 
 class PlanterApp(App):
@@ -389,6 +384,8 @@ class PlanterApp(App):
         Binding("R",       "rename_feature", "Rename Feature", show=False),
         Binding("d",       "delete",         "Delete"),
         Binding("q",       "quit",           "Quit"),
+        Binding("right",   "focus_right",    "→", show=False),
+        Binding("left",    "focus_left",     "←", show=False),
     ]
 
     def __init__(self):
@@ -527,6 +524,20 @@ class PlanterApp(App):
             self._history_idx = idx
 
     # ── Actions ───────────────────────────────────────────────────────────
+
+    def action_focus_right(self) -> None:
+        focused = self.focused
+        if focused is self.query_one("#feat-list", ListView):
+            self.query_one("#task-list", ListView).focus()
+        elif focused is self.query_one("#task-list", ListView):
+            self.query_one("#history-list", ListView).focus()
+
+    def action_focus_left(self) -> None:
+        focused = self.focused
+        if focused is self.query_one("#history-list", ListView):
+            self.query_one("#task-list", ListView).focus()
+        elif focused is self.query_one("#task-list", ListView):
+            self.query_one("#feat-list", ListView).focus()
 
     def action_add_feature(self) -> None:
         def done(name: Optional[str]) -> None:

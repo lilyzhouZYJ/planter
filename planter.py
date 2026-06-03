@@ -47,14 +47,21 @@ STATUSES = ["todo", "in-progress", "done", "blocked"]
 
 STATUS_COLOR = {
     "todo":        "dim",
-    "in-progress": "yellow",
+    "in-progress": "#d4780a",
     "done":        "green",
     "blocked":     "red",
 }
 
+STATUS_ART = {
+    "todo":        "🌰",
+    "in-progress": "🌱",
+    "done":        "🪴",
+    "blocked":     "🍂",
+}
+
 CATEGORIES = {
     "Note":    "cyan",
-    "Status":  "yellow",
+    "Status":  "#d4780a",
     "Blocker": "red",
     "Update":  "green",
 }
@@ -210,17 +217,35 @@ class StatusModal(ModalScreen):
     {MODAL_CSS}
     Button {{ width: 100%; margin-bottom: 1; }}
     """
-    BINDINGS = [Binding("escape", "dismiss_modal", "Cancel", show=False)]
+    BINDINGS = [
+        Binding("escape", "dismiss_modal", "Cancel", show=False),
+        Binding("up",     "focus_prev",    show=False),
+        Binding("down",   "focus_next",    show=False),
+    ]
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal-box"):
             yield Label("Set Status", classes="modal-heading")
             for s in STATUSES:
                 c = STATUS_COLOR.get(s, "white")
-                yield Button(f"[{c}]{s}[/{c}]", id=f"s-{s}")
+                emoji = STATUS_ART.get(s, "")
+                yield Button(f"{emoji}  [{c}]{s}[/{c}]", id=f"s-{s}")
+
+    def on_mount(self) -> None:
+        self.query(Button).first().focus()
 
     def action_dismiss_modal(self) -> None:
         self.dismiss(None)
+
+    def action_focus_prev(self) -> None:
+        buttons = list(self.query(Button))
+        if self.focused in buttons:
+            buttons[(buttons.index(self.focused) - 1) % len(buttons)].focus()
+
+    def action_focus_next(self) -> None:
+        buttons = list(self.query(Button))
+        if self.focused in buttons:
+            buttons[(buttons.index(self.focused) + 1) % len(buttons)].focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id or ""
@@ -456,12 +481,13 @@ class PlanterApp(App):
             if f:
                 for t in f["tasks"]:
                     c = STATUS_COLOR.get(t["status"], "white")
+                    emoji = STATUS_ART.get(t["status"], " ")
                     nn = len(t["notes"])
                     badge = f"  [dim]({nn} entries)[/dim]" if nn else ""
                     added = datetime.fromisoformat(t["created_at"]).strftime("%Y-%m-%d %H:%M")
                     lv.append(_ListItem(
-                        Label(f"  [{c}]{t['status']:>11}[/{c}]  {t['title']}{badge}"),
-                        Label(f"  [dim]added {added}[/dim]"),
+                        Label(f"  {emoji}  [{c}]{t['status']}[/{c}]  {t['title']}{badge}"),
+                        Label(f"      [dim]added {added}[/dim]"),
                     ))
                 if f["tasks"]:
                     self._task_idx = min(self._task_idx, len(f["tasks"]) - 1)

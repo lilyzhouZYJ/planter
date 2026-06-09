@@ -294,10 +294,11 @@ class AddHistoryModal(ModalScreen):
     """
     BINDINGS = [Binding("escape", "dismiss_modal", "Cancel", show=False)]
 
-    def __init__(self, heading: str):
+    def __init__(self, heading: str, initial_body: str = "", initial_category: str = "Note"):
         super().__init__()
         self._heading = heading
-        self._category = "Note"
+        self._category = initial_category
+        self._initial_body = initial_body
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal-box"):
@@ -306,14 +307,16 @@ class AddHistoryModal(ModalScreen):
             with Horizontal(classes="cat-row"):
                 for cat in CATEGORIES:
                     yield Button(cat, id=f"cat-{cat}", classes="cat-btn")
-            yield Input(placeholder="Write your entry…")
+            yield Input(value=self._initial_body, placeholder="Write your entry…")
             with Horizontal(classes="modal-buttons"):
                 yield Button("OK", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")
 
     def on_mount(self) -> None:
         self._refresh_buttons()
-        self.query_one(Input).focus()
+        inp = self.query_one(Input)
+        inp.focus()
+        inp.cursor_position = len(self._initial_body)
 
     def _refresh_buttons(self) -> None:
         for cat in CATEGORIES:
@@ -386,6 +389,8 @@ ListView { height: 1fr; }
 
 ListItem { padding: 0 1 1 1; }
 
+ListItem.--highlight { background: #b8dfc4; }
+ListView:focus ListItem.--highlight { background: #8fcca0; }
 ListItem:hover { background: #ccdfd2; }
 ListItem.--highlight:hover { background: #a3d4b0; }
 
@@ -401,16 +406,13 @@ class PlanterApp(App):
     TITLE = "planter"
 
     BINDINGS = [
-        Binding("f",       "add_feature",    "New Feature"),
-        Binding("n",       "add_task",       "New Task"),
+        Binding("n",       "add_new",        "New"),
         Binding("s",       "set_status",     "Status"),
-        Binding("a",       "add_note",       "Add Entry"),
-        Binding("r",       "rename_task",    "Rename Task"),
-        Binding("R",       "rename_feature", "Rename Feature", show=False),
+        Binding("e",       "edit",           "Edit"),
         Binding("d",       "delete",         "Delete"),
+        Binding("left",    "focus_left",     "←"),
+        Binding("right",   "focus_right",    "→"),
         Binding("q",       "quit",           "Quit"),
-        Binding("right",   "focus_right",    "→", show=False),
-        Binding("left",    "focus_left",     "←", show=False),
     ]
 
     def __init__(self):
@@ -432,7 +434,7 @@ class PlanterApp(App):
                 yield Static("  Tasks  ", classes="panel-title")
                 yield ListView(id="task-list", classes="panel-body")
             with Vertical(id="note-panel"):
-                yield Static("  History  ", classes="panel-title")
+                yield Static("  Notes  ", classes="panel-title")
                 yield ListView(id="history-list", classes="panel-body")
         yield Footer()
 
@@ -565,7 +567,18 @@ class PlanterApp(App):
         elif focused is self.query_one("#task-list", ListView):
             self.query_one("#feat-list", ListView).focus()
 
-    def action_add_feature(self) -> None:
+    def action_add_new(self) -> None:
+        focused = self.focused
+        if focused is self.query_one("#feat-list", ListView):
+            self._add_feature()
+        elif focused is self.query_one("#task-list", ListView):
+            self._add_task()
+        elif focused is self.query_one("#history-list", ListView):
+            self._add_note()
+        else:
+            self._add_feature()
+
+    def _add_feature(self) -> None:
         def done(name: Optional[str]) -> None:
             if name:
                 add_feature(self.data, name)
@@ -576,10 +589,10 @@ class PlanterApp(App):
 
         self.push_screen(TextInputModal("New Feature", "e.g. auth, backend, misc…"), done)
 
-    def action_add_task(self) -> None:
+    def _add_task(self) -> None:
         f = self._sel_feature
         if not f:
-            self.notify("Create a feature first (press f).", severity="warning")
+            self.notify("Create a feature first (press n in Features panel).", severity="warning")
             return
 
         def done(title: Optional[str]) -> None:
@@ -590,6 +603,22 @@ class PlanterApp(App):
                 self._rebuild_tasks()
 
         self.push_screen(TextInputModal(f"New Task  [{f['name']}]", "Task title…"), done)
+
+    def _add_note(self) -> None:
+        if not self._sel_task:
+            self.notify("Select a task first.", severity="warning")
+            return
+        t = self._sel_task
+
+        def done(result) -> None:
+            if result:
+                category, body = result
+                add_note(self.data, t["id"], body, category)
+                save(self.data)
+                self._rebuild_history()
+                self.notify("Note added.")
+
+        self.push_screen(AddHistoryModal("Add Note"), done)
 
     def action_set_status(self) -> None:
         if not self._sel_task:
@@ -608,23 +637,16 @@ class PlanterApp(App):
 
         self.push_screen(StatusModal(), done)
 
-    def action_add_note(self) -> None:
-        if not self._sel_task:
-            self.notify("Select a task first.", severity="warning")
-            return
-        t = self._sel_task
+    def action_edit(self) -> None:
+        focused = self.focused
+        if focused is self.query_one("#feat-list", ListView):
+            self._rename_feature()
+        elif focused is self.query_one("#history-list", ListView):
+            self._edit_note()
+        else:
+            self._rename_task()
 
-        def done(result) -> None:
-            if result:
-                category, body = result
-                add_note(self.data, t["id"], body, category)
-                save(self.data)
-                self._rebuild_history()
-                self.notify("Entry added.")
-
-        self.push_screen(AddHistoryModal("Add History Entry"), done)
-
-    def action_rename_task(self) -> None:
+    def _rename_task(self) -> None:
         t = self._sel_task
         if not t:
             self.notify("Select a task first.", severity="warning")
@@ -636,9 +658,9 @@ class PlanterApp(App):
                 save(self.data)
                 self._rebuild_tasks()
 
-        self.push_screen(TextInputModal("Rename Task", initial=t["title"]), done_task)
+        self.push_screen(TextInputModal("Edit Task", initial=t["title"]), done_task)
 
-    def action_rename_feature(self) -> None:
+    def _rename_feature(self) -> None:
         f = self._sel_feature
         if not f:
             self.notify("Select a feature first.", severity="warning")
@@ -650,7 +672,29 @@ class PlanterApp(App):
                 save(self.data)
                 self._rebuild_features()
 
-        self.push_screen(TextInputModal("Rename Feature", initial=f["name"]), done_feat)
+        self.push_screen(TextInputModal("Edit Feature", initial=f["name"]), done_feat)
+
+    def _edit_note(self) -> None:
+        t = self._sel_task
+        if not t or not t["notes"]:
+            self.notify("No note selected.", severity="warning")
+            return
+        actual_idx = len(t["notes"]) - 1 - self._history_idx
+        entry = t["notes"][actual_idx]
+
+        def done(result) -> None:
+            if result:
+                category, body = result
+                entry["body"] = body
+                entry["category"] = category
+                save(self.data)
+                self._rebuild_history()
+                self.notify("Note updated.")
+
+        self.push_screen(
+            AddHistoryModal("Edit Note", initial_body=entry["body"], initial_category=entry.get("category", "Note")),
+            done,
+        )
 
     def action_delete(self) -> None:
         focused = self.focused
